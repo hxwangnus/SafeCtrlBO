@@ -39,11 +39,20 @@ from torch import nn
 from torch.nn.utils import parameters_to_vector, vector_to_parameters
 from copy import deepcopy
 
+from device_utils import configure_torch_runtime, format_runtime, resolve_device, resolve_dtype
+
 # -----------------------------
 # Global configuration
 # -----------------------------
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+DEVICE = resolve_device("auto")
 DTYPE = torch.float64
+
+
+def configure_runtime(device="auto", dtype="float64"):
+    global DEVICE, DTYPE
+    DEVICE = configure_torch_runtime(device)
+    DTYPE = resolve_dtype(dtype)
+    print(f"Running kernel search with {format_runtime(DEVICE, DTYPE)}")
 
 
 # ============================================================
@@ -731,6 +740,8 @@ def make_argparser():
     p.add_argument("--target", type=str, default="perf", choices=["perf", "safe"], help="Target column name")
     p.add_argument("--val_ratio", type=float, default=0.2, help="Validation split ratio (e.g., 0.2)")
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--device", type=str, default="auto", help="auto, cpu, cuda, or cuda:<index>")
+    p.add_argument("--dtype", type=str, default="float64", choices=["float64", "float32"])
 
     # kernel search space
     p.add_argument("--max_order", type=int, default=2, help="Max interaction order (use 2 => 45 comps for d=9)")
@@ -772,6 +783,7 @@ def make_argparser():
 
 def main():
     args = make_argparser().parse_args()
+    configure_runtime(device=args.device, dtype=args.dtype)
 
     # Load data
     Xtr, ytr, Xva, yva, _norm_info = load_gantry_from_csv_robust(

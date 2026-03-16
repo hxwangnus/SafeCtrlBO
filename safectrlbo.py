@@ -4,6 +4,7 @@ import torch
 import gpytorch
 # from botorch.utils.sampling import draw_sobol_samples
 from torch.quasirandom import SobolEngine
+from device_utils import resolve_device
 from model import build_gp, fit_gp
 
 
@@ -24,8 +25,8 @@ class SafeCtrlBO:
         sobol_seed=None,
         safe_retry_radius=0.05,
     ):
-        self.device = device
-        self.bounds = bounds.to(device)
+        self.device = resolve_device(device)
+        self.bounds = bounds.to(self.device)
 
         # whether we have a separate safety signal g(x)
         self.use_safety = (init_Y_safe is not None) and (safety_threshold is not None)
@@ -41,9 +42,9 @@ class SafeCtrlBO:
             seed=sobol_seed,
         )
 
-        self.X = init_X.to(device)
-        self.Yf = init_Y_perf.to(device)
-        self.Yg = init_Y_safe.to(device) if self.use_safety else None
+        self.X = init_X.to(self.device)
+        self.Yf = init_Y_perf.to(self.device)
+        self.Yg = init_Y_safe.to(self.device) if self.use_safety else None
 
         # current number of observations (used for beta_t etc.)
         self.n_iter = self.X.shape[0]
