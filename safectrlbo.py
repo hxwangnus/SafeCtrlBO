@@ -22,6 +22,7 @@ class SafeCtrlBO:
         device="cpu",
         init_training_iter=0,  # number of training steps at initialization (0 => use DARTS hyper as-is)
         sobol_seed=None,
+        safe_retry_radius=0.05,
     ):
         self.device = device
         self.bounds = bounds.to(device)
@@ -33,6 +34,7 @@ class SafeCtrlBO:
         self.switch_time = switch_time
         self.beta_fn = beta_fn or (lambda n: 2.0 * torch.log(torch.tensor(float(n + 1.0))))
         self.tau = tau
+        self.safe_retry_radius = safe_retry_radius
         self._sobol_engine = SobolEngine(
             dimension=self.bounds.shape[1],
             scramble=True,
@@ -84,6 +86,67 @@ class SafeCtrlBO:
         std = pred.variance.sqrt()
         return mean, std
 
+    def _beta_sqrt(self, beta, dtype):
+        return torch.sqrt(torch.tensor(beta, dtype=dtype, device=self.device))
+
+    def _observed_safe_points(self, beta):
+        """
+        Return observed points that are still certified safe under the current GP.
+        """
+        if not self.use_safety:
+            return self.X
+
+        beta_sqrt = self._beta_sqrt(beta, self.X.dtype)
+        mu_g_obs, std_g_obs = self.posterior_mean_std(self.model_g, self.lik_g, self.X)
+        l_g_obs = mu_g_obs - beta_sqrt * std_g_obs
+        safe_obs_mask = l_g_obs >= self.safety_threshold
+        return self.X[safe_obs_mask]
+
+    def _local_safe_retry_candidates(self, safe_points, num_candidates):
+        """
+        Sample a local cloud around certified-safe observed points and include the
+        safe points themselves so the retry set always contains known-safe anchors.
+        """
+        if safe_points.numel() == 0:
+            return safe_points
+
+        safe_points = safe_points.to(device=self.device, dtype=self.bounds.dtype)
+        num_safe = safe_points.shape[0]
+        num_local = max(num_candidates - num_safe, 0)
+        if num_local == 0:
+            return safe_points
+
+        sample_ids = torch.randint(num_safe, (num_local,), device=self.device)
+        centers = safe_points[sample_ids]
+
+        span = (self.bounds[1] - self.bounds[0]).unsqueeze(0)
+        perturb_scale = self.safe_retry_radius * span
+        perturb = torch.randn_like(centers) * perturb_scale
+        X_local = centers + perturb
+
+        lb = self.bounds[0].unsqueeze(0)
+        ub = self.bounds[1].unsqueeze(0)
+        X_local = torch.maximum(torch.minimum(X_local, ub), lb)
+
+        return torch.cat([safe_points, X_local], dim=0)
+
+    def _best_safe_observed_point(self, beta):
+        """
+        Choose the best certified-safe observed point by the current UCB of f.
+        """
+        safe_points = self._observed_safe_points(beta)
+        if safe_points.numel() == 0:
+            raise RuntimeError(
+                "SafeCtrlBO could not certify any observed point as safe. "
+                "Please provide a safer initialization, relax the safety threshold, "
+                "or adjust the GP uncertainty settings."
+            )
+
+        beta_sqrt = self._beta_sqrt(beta, safe_points.dtype)
+        mu_f_obs, std_f_obs = self.posterior_mean_std(self.model_f, self.lik_f, safe_points)
+        u_f_obs = mu_f_obs + beta_sqrt * std_f_obs
+        return safe_points[torch.argmax(u_f_obs)]
+
     def _get_sets(self, X_cand, beta):
         """
         Calculate Sn, Bn, u_f (UCB of f), sigma_f, l_g (LCB of g)
@@ -96,7 +159,7 @@ class SafeCtrlBO:
         # posterior of f
         mu_f, std_f = self.posterior_mean_std(self.model_f, self.lik_f, X_cand)
 
-        beta_sqrt = torch.sqrt(torch.tensor(beta, dtype=X_cand.dtype, device=self.device))
+        beta_sqrt = self._beta_sqrt(beta, X_cand.dtype)
         u_f = mu_f + beta_sqrt * std_f
 
         if not self.use_safety:
@@ -124,16 +187,11 @@ class SafeCtrlBO:
         # safe set Sn
         safe_mask = l_g >= self.safety_threshold
         S = X_cand[safe_mask]
-        if S.numel() == 0:
-            # if safe set is empty, use the whole set of parameters
-            # this is possible if X_cand is sparse and small
-            S = X_cand
-            safe_mask = torch.ones_like(l_g, dtype=torch.bool)
 
         # safe boundary set Bn
         boundary_mask = safe_mask & (torch.abs(l_g - self.safety_threshold) <= self.tau)
         B = X_cand[boundary_mask]
-        if B.numel() == 0:
+        if B.numel() == 0 and S.numel() > 0:
             # if boundary set is empty, use the safe set
             B = S
             boundary_mask = safe_mask
@@ -183,6 +241,23 @@ class SafeCtrlBO:
         X_cand = lb + (ub - lb) * X_unit  # (num_candidates, d)
 
         sets = self._get_sets(X_cand, beta)
+        retried_locally = False
+
+        if self.use_safety and sets["S"].numel() == 0:
+            safe_points = self._observed_safe_points(beta)
+            if safe_points.numel() == 0:
+                raise RuntimeError(
+                    "SafeCtrlBO found no certified-safe candidate and no certified-safe "
+                    "observed point to fall back to."
+                )
+
+            X_retry = self._local_safe_retry_candidates(safe_points, num_candidates)
+            sets = self._get_sets(X_retry, beta)
+            retried_locally = True
+
+            if sets["S"].numel() == 0:
+                x_next = self._best_safe_observed_point(beta)
+                return x_next.unsqueeze(0), "safe_fallback", sets
 
         if self.n_iter <= self.switch_time:
             # Safe exploration, maximize sigma_f in Bn
@@ -196,6 +271,9 @@ class SafeCtrlBO:
             idx = torch.argmax(u_S)
             x_next = sets["S"][idx]
             mode = "optimization"
+
+        if retried_locally:
+            mode = f"{mode}_local_retry"
 
         return x_next.unsqueeze(0), mode, sets
 
