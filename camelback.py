@@ -225,6 +225,7 @@ def run_experiment(
             tau=0.1,             # irrelevant when there is no safety
             device=device,
             init_training_iter=0, # keep kernel hyperparameters fixed
+            likelihood_noise=noise_var,
             sobol_seed=run_seed,
         )
 
