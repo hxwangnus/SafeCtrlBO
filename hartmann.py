@@ -33,6 +33,7 @@ INPUT_DIM = 6
 DOMAIN_SCALE = 4.0
 GLOBAL_OPT = 3.322368011415515
 PLOT_FLOOR = 1e-12
+DEFAULT_LIKELIHOOD_NOISE_FLOOR = 1e-8
 
 BOUNDS_NP = np.array([
     [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
@@ -328,6 +329,7 @@ def run_experiment(
             tau=tau,
             device=device,
             init_training_iter=0,
+            likelihood_noise=max(float(noise_std) ** 2, DEFAULT_LIKELIHOOD_NOISE_FLOOR),
             sobol_seed=run_seed,
             safe_retry_radius=safe_retry_radius,
         )

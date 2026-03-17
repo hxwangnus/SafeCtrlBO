@@ -26,6 +26,7 @@ def build_gp(train_X, train_Y, base_kernel, noise=1e-4):
     train_X: (n, d) torch.double
     train_Y: (n, 1) torch.double
     base_kernel: AdditiveKernel (usually frozen from DARTS search)
+    noise: Gaussian likelihood noise variance (not standard deviation)
 
     Returns:
         model: SingleOutputGP
@@ -44,10 +45,17 @@ def build_gp(train_X, train_Y, base_kernel, noise=1e-4):
     # each GP has one deepcopied kernel to avoid hyperparameters sharing
     kernel = copy.deepcopy(base_kernel).to(device=device, dtype=dtype)
 
-    likelihood = GaussianLikelihood().to(device=device, dtype=dtype)
+    noise_value = None if noise is None else float(noise)
+    noise_lower_bound = 1e-4
+    if noise_value is not None:
+        noise_lower_bound = max(min(noise_value * 0.5, 1e-4), 1e-12)
+
+    likelihood = GaussianLikelihood(
+        noise_constraint=gpytorch.constraints.GreaterThan(noise_lower_bound)
+    ).to(device=device, dtype=dtype)
     # if noise is provided, initialize noise; otherwise keep default gpytorch init
-    if noise is not None:
-        likelihood.initialize(noise=noise)
+    if noise_value is not None:
+        likelihood.initialize(noise=noise_value)
 
     model = SingleOutputGP(train_X, train_Y_flat, likelihood, kernel).to(device=device, dtype=dtype)
 
