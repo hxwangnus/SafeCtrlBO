@@ -85,11 +85,14 @@ def make_run_seeds(num_runs, seed):
 def summarize_regret(all_simple_regret, success_threshold):
     mean_regret = np.mean(all_simple_regret, axis=1)
     median_regret = np.median(all_simple_regret, axis=1)
+    std_regret = np.std(all_simple_regret, axis=1)
+    q25_regret = np.quantile(all_simple_regret, 0.25, axis=1)
+    q75_regret = np.quantile(all_simple_regret, 0.75, axis=1)
     success_rate = np.mean(all_simple_regret <= success_threshold, axis=1)
-    return mean_regret, median_regret, success_rate
+    return mean_regret, median_regret, std_regret, q25_regret, q75_regret, success_rate
 
 
-def print_summary_report(mean_regret, median_regret, success_rate, success_threshold):
+def print_summary_report(mean_regret, median_regret, std_regret, success_rate, success_threshold):
     num_steps = mean_regret.shape[0]
     checkpoints = []
     for step in [1, 5, 10, 25, 50, 75, num_steps]:
@@ -97,13 +100,14 @@ def print_summary_report(mean_regret, median_regret, success_rate, success_thres
             checkpoints.append(step)
 
     print("")
-    print(f"{'Step':>6} {'Mean':>14} {'Median':>14} {'SuccessRate':>14}")
+    print(f"{'Step':>6} {'Mean':>14} {'Median':>14} {'Std':>14} {'SuccessRate':>14}")
     for step in checkpoints:
         idx = step - 1
         print(
             f"{step:6d} "
             f"{mean_regret[idx]:14.6e} "
             f"{median_regret[idx]:14.6e} "
+            f"{std_regret[idx]:14.6e} "
             f"{success_rate[idx]:13.2%}"
         )
 
@@ -113,6 +117,7 @@ def print_summary_report(mean_regret, median_regret, success_rate, success_thres
         "Final summary: "
         f"mean={mean_regret[final_idx]:.6e}, "
         f"median={median_regret[final_idx]:.6e}, "
+        f"std={std_regret[final_idx]:.6e}, "
         f"success@{success_threshold:.1e}={success_rate[final_idx]:.2%}"
     )
 
@@ -290,14 +295,21 @@ def main():
     )
 
     # compute mean and std over runs
-    mean_simple_regret, median_simple_regret, success_rate = summarize_regret(
+    (
+        mean_simple_regret,
+        median_simple_regret,
+        std_simple_regret,
+        q25_simple_regret,
+        q75_simple_regret,
+        success_rate,
+    ) = summarize_regret(
         all_simple_regret_matrix,
         success_threshold=args.success_threshold,
     )
-    std_simple_regret = np.std(all_simple_regret_matrix, axis=1)
     print_summary_report(
         mean_simple_regret,
         median_simple_regret,
+        std_simple_regret,
         success_rate,
         success_threshold=args.success_threshold,
     )
@@ -308,8 +320,8 @@ def main():
     x_axis = np.arange(1, args.iterations + 1)
     mean_curve = np.clip(mean_simple_regret, PLOT_FLOOR, None)
     median_curve = np.clip(median_simple_regret, PLOT_FLOOR, None)
-    lower_band = np.clip(mean_simple_regret - std_simple_regret, PLOT_FLOOR, None)
-    upper_band = np.clip(mean_simple_regret + std_simple_regret, PLOT_FLOOR, None)
+    lower_band = np.clip(q25_simple_regret, PLOT_FLOOR, None)
+    upper_band = np.clip(q75_simple_regret, PLOT_FLOOR, None)
 
     plt.plot(x_axis, mean_curve, label='Mean Simple Regret')
     plt.plot(x_axis, median_curve, label='Median Simple Regret', linestyle='--')
@@ -318,7 +330,7 @@ def main():
         lower_band,
         upper_band,
         alpha=0.3,
-        label='Standard Deviation'
+        label='Interquartile Range'
     )
     plt.yscale('log')
     plt.xlabel('Optimization Step')

@@ -1,3 +1,13 @@
+"""
+Placeholder kernel module.
+
+In the intended workflow for this repo, `selectKernel.py` is used to search for a
+kernel and export a copy-pasteable snippet. That exported code should then replace
+the contents of this file.
+
+The current implementation is only a temporary stand-in so imports keep working.
+"""
+
 import torch
 from gpytorch.kernels import AdditiveKernel, ProductKernel, RBFKernel, ScaleKernel
 
@@ -23,10 +33,10 @@ def _make_scaled_product_rbf(dims, lengthscales, outputscale):
 
 def make_safe_bo_kernel(dtype=torch.double, device="cpu"):
     """
-    Build the frozen additive kernel exported from the DARTS search.
+    Temporary stand-in kernel.
 
-    Each component is an RBF product over a subset of input dimensions with its
-    effective outputscale already folded into the component weight.
+    Replace this function with the exported output of `selectKernel.py` when you
+    have selected a real kernel for your use case.
     """
     components = [
         _make_scaled_product_rbf(
