@@ -9,13 +9,32 @@ _DTYPE_MAP = {
 }
 
 
+def _mps_backend():
+    return getattr(torch.backends, "mps", None)
+
+
+def mps_is_available():
+    backend = _mps_backend()
+    return backend is not None and backend.is_available()
+
+
+def mps_is_built():
+    backend = _mps_backend()
+    return backend is not None and backend.is_built()
+
+
 def resolve_device(device="auto"):
     if isinstance(device, torch.device):
         resolved = device
     else:
         requested = "auto" if device is None else str(device).lower()
         if requested == "auto":
-            resolved = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            if torch.cuda.is_available():
+                resolved = torch.device("cuda")
+            elif mps_is_available():
+                resolved = torch.device("mps")
+            else:
+                resolved = torch.device("cpu")
         else:
             resolved = torch.device(requested)
 
@@ -23,6 +42,19 @@ def resolve_device(device="auto"):
         raise RuntimeError(
             "CUDA was requested, but this Python environment cannot access a GPU. "
             "Please check your PyTorch/CUDA installation and driver setup."
+        )
+
+    if resolved.type == "mps" and not mps_is_available():
+        detail = (
+            "this PyTorch build was not compiled with MPS support."
+            if not mps_is_built()
+            else "MPS is not available on this machine."
+        )
+        raise RuntimeError(
+            "MPS was requested, but this Python environment cannot access the Apple GPU: "
+            f"{detail} "
+            "Please use a macOS PyTorch build with MPS support on an Apple Silicon Mac, "
+            "or fall back to --device cpu."
         )
 
     return resolved
@@ -47,7 +79,7 @@ def configure_torch_runtime(device):
         if hasattr(torch.backends, "cudnn"):
             torch.backends.cudnn.allow_tf32 = True
             torch.backends.cudnn.benchmark = True
-    else:
+    elif device.type == "cpu":
         torch.set_num_threads(1)
         torch.set_num_interop_threads(1)
     return device
@@ -58,4 +90,6 @@ def format_runtime(device, dtype):
     if isinstance(device, torch.device) and device.type == "cuda":
         index = device.index if device.index is not None else torch.cuda.current_device()
         label = f"{label} ({torch.cuda.get_device_name(index)})"
+    elif isinstance(device, torch.device) and device.type == "mps":
+        label = "mps (Apple Silicon GPU)"
     return f"device={label}, dtype={str(dtype).replace('torch.', '')}"

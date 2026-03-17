@@ -740,7 +740,7 @@ def make_argparser():
     p.add_argument("--target", type=str, default="perf", choices=["perf", "safe"], help="Target column name")
     p.add_argument("--val_ratio", type=float, default=0.2, help="Validation split ratio (e.g., 0.2)")
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--device", type=str, default="auto", help="auto, cpu, cuda, or cuda:<index>")
+    p.add_argument("--device", type=str, default="auto", help="auto, cpu, mps, cuda, or cuda:<index>")
     p.add_argument("--dtype", type=str, default="float64", choices=["float64", "float32"])
 
     # kernel search space

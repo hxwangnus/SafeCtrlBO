@@ -274,7 +274,7 @@ def main():
     parser.add_argument("--num-runs", type=int, default=100)
     parser.add_argument("--iterations", type=int, default=150)
     parser.add_argument("--num-candidates", type=int, default=16384)
-    parser.add_argument("--device", type=str, default="auto", help="auto, cpu, cuda, or cuda:<index>")
+    parser.add_argument("--device", type=str, default="auto", help="auto, cpu, mps, cuda, or cuda:<index>")
     parser.add_argument("--dtype", type=str, default="float64", choices=["float64", "float32"])
     parser.add_argument("--seed", type=int, default=0, help="Base seed for fully reproducible runs")
     parser.add_argument("--success-threshold", type=float, default=1e-4)

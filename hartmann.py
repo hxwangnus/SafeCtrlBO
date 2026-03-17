@@ -385,7 +385,7 @@ def main():
     parser.add_argument("--safe-retry-radius", type=float, default=0.05)
     parser.add_argument("--x0-file", type=str, default=None, help="Optional .npy file of safe initial points with shape (runs, 6) or (runs, 1, 6)")
     parser.add_argument("--max-init-attempts", type=int, default=10000)
-    parser.add_argument("--device", type=str, default="auto", help="auto, cpu, cuda, or cuda:<index>")
+    parser.add_argument("--device", type=str, default="auto", help="auto, cpu, mps, cuda, or cuda:<index>")
     parser.add_argument("--dtype", type=str, default="float64", choices=["float64", "float32"])
     parser.add_argument("--seed", type=int, default=0, help="Base seed for fully reproducible runs")
     parser.add_argument("--success-threshold", type=float, default=1e-2)

@@ -42,7 +42,7 @@ There are currently two separate tracks in the repo:
 
 ## Environment
 
-The checked-in environment in this repo currently uses:
+The original Linux/CUDA environment for this repo used:
 
 - Python 3.10.19
 - NumPy 2.2.6
@@ -50,21 +50,52 @@ The checked-in environment in this repo currently uses:
 - GPyTorch 1.15.2
 - Matplotlib 3.10.8
 
+For a fresh macOS or Linux setup, use Python `3.10` plus the
+cross-platform `requirements.txt` below, and choose the appropriate PyTorch
+wheel for your platform when you need GPU support.
+
 ## Installation
 
-Create a clean virtual environment and install the core dependencies:
+Create a clean virtual environment and install the core dependencies from
+`requirements.txt`.
+
+### Recommended: `uv` on macOS or Linux
 
 ```bash
-python3 -m venv .venv
+uv python install 3.10
+uv venv --python 3.10 .venv
 source .venv/bin/activate
-pip install --upgrade pip
-pip install numpy matplotlib torch gpytorch
+uv pip install --upgrade pip
+uv pip install -r requirements.txt
+```
+
+### Standard library `venv`
+
+```bash
+python3.10 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 ```
 
 Notes:
 
-- If you want CUDA support, install the correct PyTorch build for your machine before installing the rest of the stack.
-- The scripts support `--device auto`, `--device cpu`, and `--device cuda[:index]`.
+- The recommended Python baseline for this repo is `3.10`.
+- On Apple Silicon Macs, PyTorch uses the `mps` device for GPU acceleration. `--device auto` now prefers `cuda`, then `mps`, then `cpu`.
+- If you want NVIDIA CUDA support on Linux, install the matching PyTorch wheel from the official selector first, then install `requirements.txt`. For example, CUDA 12.8:
+
+```bash
+uv pip install --index-url https://download.pytorch.org/whl/cu128 "torch>=2.7,<2.8"
+uv pip install -r requirements.txt
+```
+
+- On macOS, if a specific op is not implemented on MPS yet, PyTorch can fall back to CPU when `PYTORCH_ENABLE_MPS_FALLBACK=1` is set before launching Python:
+
+```bash
+export PYTORCH_ENABLE_MPS_FALLBACK=1
+```
+
+- The scripts support `--device auto`, `--device cpu`, `--device mps`, and `--device cuda[:index]`.
 - `camelback.py` configures a non-interactive Matplotlib backend, so it works in headless environments.
 - The commands below assume you activated a virtual environment. If you prefer to use the committed environment in this repo, replace `python` with `./env/bin/python`.
 
@@ -75,20 +106,27 @@ Notes:
 This is the fastest way to confirm the basic GP code path is working:
 
 ```bash
-python gp_initialization.py --device cpu --dtype float64
+python gp_initialization.py --device auto --dtype float64
 ```
 
 Expected output:
 
 ```text
-Initializing GPs with device=cpu, dtype=float64
+Initializing GPs with device=..., dtype=float64
 Initialized performance and safety GPs.
+```
+
+On Apple Silicon, you can also verify MPS directly:
+
+```bash
+python -c "import torch; print('mps built:', torch.backends.mps.is_built()); print('mps available:', torch.backends.mps.is_available())"
+python gp_initialization.py --device mps --dtype float64
 ```
 
 ### 2. Run the Camelback Benchmark
 
 ```bash
-python camelback.py --device cpu --dtype float64
+python camelback.py --device auto --dtype float64
 ```
 
 Useful flags:
@@ -107,13 +145,13 @@ Output:
 Example for a faster smoke test:
 
 ```bash
-python camelback.py --num-runs 5 --iterations 20 --num-candidates 4096 --device cpu --dtype float64
+python camelback.py --num-runs 5 --iterations 20 --num-candidates 4096 --device auto --dtype float64
 ```
 
 ### 3. Run Kernel Search on the Gantry Data
 
 ```bash
-python selectKernel.py --data gantry_data1.csv --target perf --device cpu --dtype float64
+python selectKernel.py --data gantry_data1.csv --target perf --device auto --dtype float64
 ```
 
 Useful flags:
@@ -133,7 +171,7 @@ python selectKernel.py \
   --max_order 2 \
   --outer_steps 100 \
   --inner_steps 2 \
-  --device cpu \
+  --device auto \
   --dtype float64
 ```
 

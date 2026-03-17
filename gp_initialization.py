@@ -30,7 +30,7 @@ def build_initial_models(device=None, dtype=torch.float64):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--device", type=str, default="auto", help="auto, cpu, cuda, or cuda:<index>")
+    parser.add_argument("--device", type=str, default="auto", help="auto, cpu, mps, cuda, or cuda:<index>")
     parser.add_argument("--dtype", type=str, default="float64", choices=["float64", "float32"])
     args = parser.parse_args()
 
