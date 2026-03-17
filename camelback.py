@@ -267,7 +267,7 @@ def run_experiment(
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--num-runs", type=int, default=100)
-    parser.add_argument("--iterations", type=int, default=100)
+    parser.add_argument("--iterations", type=int, default=150)
     parser.add_argument("--num-candidates", type=int, default=16384)
     parser.add_argument("--device", type=str, default="auto", help="auto, cpu, cuda, or cuda:<index>")
     parser.add_argument("--dtype", type=str, default="float64", choices=["float64", "float32"])
