@@ -22,6 +22,7 @@ class SafeCtrlBO:
         tau=0.1,
         device="cpu",
         init_training_iter=0,  # number of training steps at initialization (0 => use DARTS hyper as-is)
+        likelihood_noise=1e-4,  # Gaussian likelihood noise variance used by both GPs
         sobol_seed=None,
         safe_retry_radius=0.05,
     ):
@@ -35,6 +36,7 @@ class SafeCtrlBO:
         self.switch_time = switch_time
         self.beta_fn = beta_fn or (lambda n: 2.0 * torch.log(torch.tensor(float(n + 1.0))))
         self.tau = tau
+        self.likelihood_noise = likelihood_noise
         self.safe_retry_radius = safe_retry_radius
         self._sobol_engine = SobolEngine(
             dimension=self.bounds.shape[1],
@@ -60,12 +62,12 @@ class SafeCtrlBO:
         training_iter=0 to keep the learned kernel unchanged.
         """
         self.model_f, self.lik_f, self.mll_f = build_gp(
-            self.X, self.Yf, base_kernel
+            self.X, self.Yf, base_kernel, noise=self.likelihood_noise
         )
 
         if self.use_safety:
             self.model_g, self.lik_g, self.mll_g = build_gp(
-                self.X, self.Yg, base_kernel
+                self.X, self.Yg, base_kernel, noise=self.likelihood_noise
             )
         else:
             self.model_g = None
@@ -79,12 +81,19 @@ class SafeCtrlBO:
 
     @torch.no_grad()
     def posterior_mean_std(self, model, likelihood, Xtest):
+        """
+        Return the posterior over the latent GP function values.
+
+        BO confidence bounds should be built from epistemic uncertainty in the
+        latent function, not from the observation-noise distribution.
+        """
         model.eval()
-        likelihood.eval()
+        if likelihood is not None:
+            likelihood.eval()
         with gpytorch.settings.fast_pred_var():
-            pred = likelihood(model(Xtest))
+            pred = model(Xtest)
         mean = pred.mean
-        std = pred.variance.sqrt()
+        std = pred.variance.clamp_min(0.0).sqrt()
         return mean, std
 
     def _beta_sqrt(self, beta, dtype):
@@ -103,10 +112,20 @@ class SafeCtrlBO:
         safe_obs_mask = l_g_obs >= self.safety_threshold
         return self.X[safe_obs_mask]
 
+    def _empirically_safe_observed_points(self):
+        """
+        Return observed points whose measured safety values satisfy the threshold.
+        """
+        if not self.use_safety:
+            return self.X
+
+        safe_obs_mask = self.Yg.squeeze(-1) >= self.safety_threshold
+        return self.X[safe_obs_mask]
+
     def _local_safe_retry_candidates(self, safe_points, num_candidates):
         """
-        Sample a local cloud around certified-safe observed points and include the
-        safe points themselves so the retry set always contains known-safe anchors.
+        Sample a local cloud around anchor points and include the anchors
+        themselves so the retry set always contains the original points.
         """
         if safe_points.numel() == 0:
             return safe_points
@@ -147,6 +166,20 @@ class SafeCtrlBO:
         mu_f_obs, std_f_obs = self.posterior_mean_std(self.model_f, self.lik_f, safe_points)
         u_f_obs = mu_f_obs + beta_sqrt * std_f_obs
         return safe_points[torch.argmax(u_f_obs)]
+
+    def _best_empirically_safe_observed_point(self):
+        """
+        Choose the best observed point among measurements that satisfied safety.
+        """
+        safe_obs_mask = self.Yg.squeeze(-1) >= self.safety_threshold
+        if not torch.any(safe_obs_mask):
+            raise RuntimeError(
+                "SafeCtrlBO has no observed measurement that satisfies the safety threshold."
+            )
+
+        safe_points = self.X[safe_obs_mask]
+        safe_perf = self.Yf.squeeze(-1)[safe_obs_mask]
+        return safe_points[torch.argmax(safe_perf)]
 
     def _get_sets(self, X_cand, beta):
         """
@@ -243,20 +276,29 @@ class SafeCtrlBO:
 
         sets = self._get_sets(X_cand, beta)
         retried_locally = False
+        retry_source = None
 
         if self.use_safety and sets["S"].numel() == 0:
             safe_points = self._observed_safe_points(beta)
+            retry_source = "certified"
             if safe_points.numel() == 0:
-                raise RuntimeError(
-                    "SafeCtrlBO found no certified-safe candidate and no certified-safe "
-                    "observed point to fall back to."
-                )
+                safe_points = self._empirically_safe_observed_points()
+                retry_source = "empirical"
+                if safe_points.numel() == 0:
+                    raise RuntimeError(
+                        "SafeCtrlBO found no certified-safe candidate and no observed "
+                        "measurement that satisfied the safety threshold."
+                    )
 
             X_retry = self._local_safe_retry_candidates(safe_points, num_candidates)
             sets = self._get_sets(X_retry, beta)
             retried_locally = True
 
             if sets["S"].numel() == 0:
+                if retry_source == "empirical":
+                    x_next = self._best_empirically_safe_observed_point()
+                    return x_next.unsqueeze(0), "empirical_safe_fallback", sets
+
                 x_next = self._best_safe_observed_point(beta)
                 return x_next.unsqueeze(0), "safe_fallback", sets
 
@@ -274,7 +316,8 @@ class SafeCtrlBO:
             mode = "optimization"
 
         if retried_locally:
-            mode = f"{mode}_local_retry"
+            prefix = "empirical_" if retry_source == "empirical" else ""
+            mode = f"{prefix}{mode}_local_retry"
 
         return x_next.unsqueeze(0), mode, sets
 
