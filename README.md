@@ -113,3 +113,20 @@ unconstrained BO.
   acquisition optimizer.
 - Exact GP inference still scales cubically with the number of observations, so
   long BO runs may need sparse or approximate GP extensions.
+
+# Citation
+
+If you find this repo useful, you can consider citing our work:
+
+```bibtex
+@ARTICLE{11174949,
+  author={Wang, Hongxuan and Li, Xiaocong and Zheng, Lihao and Bhaumik, Adrish and Vadakkepat, Prahlad},
+  journal={IEEE Robotics and Automation Letters},
+  title={Safe Bayesian Optimization for Complex Control Systems via Additive Gaussian Processes},
+  year={2025},
+  volume={10},
+  number={11},
+  pages={11538-11545},
+  doi={10.1109/LRA.2025.3612756}
+}
+```
